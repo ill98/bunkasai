@@ -72,6 +72,7 @@ private:
 	float mTimer = 30.0f;
 	bool mIsGameOver;
 
+    //sensivity
 	float mMouseX = 512.0f; 
 	float mMouseY = 384.0f;
 	float mSensitivity = 0.5f;
