@@ -1,0 +1,78 @@
+#pragma once
+#include"game.h"
+#include"SDL.h"
+#include"SDL_image.h"
+#include"SDL_mixer.h"
+#include<vector>
+struct Vector2
+{
+	float x;
+	float y;
+};
+struct Bullet {
+	float x, y;
+	float size;
+};
+
+struct Target {
+	float x, y;
+	float width, height;
+	float speed;
+	int direction; // 1なら右、-1なら左
+
+};
+
+class game {
+public:
+	game();
+	// Initialize the game
+	bool Initialize();
+	// Runs the game loop until the game is over
+	void RunLoop();
+	// Shutdown the game
+	void Shutdown();
+private:
+	// Helper functions for the game loop
+	void ProcessInput();
+	void UpdateGame();
+	void GenerateOutput();
+
+	// Window created by SDL
+	SDL_Window* mWindow;
+	SDL_Window* mWindow2;
+	// Renderer for 2D drawing
+	SDL_Renderer* mRenderer;
+	SDL_Renderer* mRenderer2;
+	// Number of ticks since start of game
+	Uint32 mTicksCount;
+	// Game should continue to run
+	bool mIsRunning;
+	
+	// Texture
+	SDL_Texture* texture;
+	SDL_Texture* mGunTexture;
+	SDL_Texture* mGunTexture2;
+	SDL_Texture* mBulletTexture;
+	SDL_Texture* mTargetTexture;
+	
+	// Music
+	Mix_Music* bgm;
+	Mix_Chunk* soundEffect;
+	Mix_Chunk* soundEffect2;
+	
+	// Game objects
+	SDL_Point mMousePos;    
+	bool mIsFiring = false;
+	std::vector<Bullet> mBullets;
+	std::vector<Target> mTargets;
+	Target mTarget;
+	
+	//score and timer
+	int mScore = 0;
+	float mTimer = 30.0f;
+	bool mIsGameOver;
+
+	float mMouseX = 512.0f; 
+	float mMouseY = 384.0f;
+	float mSensitivity = 0.5f;
+};
