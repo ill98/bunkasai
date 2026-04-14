@@ -1,0 +1,420 @@
+#include"game.h"
+#include"SDL_mixer.h"
+#include<iostream>
+#include<string>
+#include<vector>
+const int thickness = 15;
+const float paddleH = 100.0f;
+
+game::game()
+
+	    : mWindow(nullptr)
+		, mRenderer(nullptr)
+	    , mWindow2(nullptr)
+	    , mRenderer2(nullptr)
+		, mTicksCount(0)
+		, mIsRunning(true)
+	    , texture(nullptr)
+	    , mGunTexture(nullptr)
+{
+
+}
+
+bool game::Initialize()
+
+{
+	// Initialize SDL
+	int sdlResult = SDL_Init(SDL_INIT_VIDEO);
+	if (sdlResult != 0)
+	{
+		SDL_Log("Unable to initialize SDL: %s", SDL_GetError());
+		return false;
+	}
+	
+	if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) != 0)
+	{
+		SDL_Log("Unable to initialize SDL: %s", SDL_GetError());
+		return false;
+	}
+	if (Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 2048) < 0) {
+		printf("SDL_mixer初期化エラー: %s\n", Mix_GetError());
+	}
+	if (IMG_Init(IMG_INIT_PNG) == 0)
+	{
+		SDL_Log("Unable to initialize SDL_image: %s", SDL_GetError());
+		return false;
+	}
+	
+	
+	// Load music and sound effects
+	bgm = Mix_LoadMUS("honwakapop.mp3");
+	soundEffect = Mix_LoadWAV("gun.mp3");
+	soundEffect2 = Mix_LoadWAV("bakuhatu.mp3");
+	Mix_PlayMusic(bgm, -1);
+	Mix_VolumeMusic(64);
+
+	// Create SDL window
+	mWindow = SDL_CreateWindow(
+		"Game ", // Window title
+		100,	// Top left x-coordinate of window
+		100,	// Top left y-coordinate of window
+		1024,	// Width of window
+		768,	// Height of window
+		SDL_WINDOW_FULLSCREEN_DESKTOP		// Flags (0 for no flags set)
+	);
+
+	if (!mWindow)
+	{
+		SDL_Log("Failed to create window: %s", SDL_GetError());
+		return false;
+	}
+
+	//// Create SDL renderer
+	mRenderer = SDL_CreateRenderer(
+		mWindow, // Window to create renderer for
+		-1,		 // Usually -1
+		SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC
+	);
+
+	if (!mRenderer)
+	{
+		SDL_Log("Failed to create renderer: %s", SDL_GetError());
+		return false;
+	}
+	
+	// Initialize targets
+	for (int i = 0; i < 10; i++) {
+		Target t;
+		t.x = static_cast<float>(rand() % 2400); // 散らばるようにランダム配置
+		t.y = static_cast<float>(100 + (i * 80)); // 少しずつ高さを変える
+		t.width = 64.0f;
+		t.height = 64.0f;
+		t.speed = 150.0f + (rand() % 100); // 各ターゲットで速度を変える
+		t.direction = (rand() % 2 == 0) ? 1 : -1; // 向きもランダム
+
+		mTargets.push_back(t);
+	}
+
+	// Load textures
+	texture = IMG_LoadTexture(mRenderer, "kouya.png");
+	mGunTexture = IMG_LoadTexture(mRenderer, "gun.png");
+	mGunTexture2 = IMG_LoadTexture(mRenderer, "gun2.png");
+	mBulletTexture = IMG_LoadTexture(mRenderer, "marisa.png");
+	mTargetTexture = IMG_LoadTexture(mRenderer, "mato.png");
+	if (texture == NULL) {
+		printf("テクスチャ作成失敗: %s\n", IMG_GetError());
+	}
+
+
+}
+
+void game::RunLoop()
+{
+	while (mIsRunning)
+	{
+		ProcessInput();
+		UpdateGame();
+		GenerateOutput();
+	}
+}
+
+void game::ProcessInput()
+{
+	SDL_Event event;
+	// Process mouce clicks
+	while (SDL_PollEvent(&event))
+	{
+		switch (event.type)
+		{
+		case SDL_QUIT:
+			mIsRunning = false;
+			break;
+			
+		case SDL_MOUSEBUTTONDOWN:
+			Mix_PlayChannel(-1, soundEffect, 0);
+			if (event.button.button == SDL_BUTTON_LEFT) {
+				mIsFiring = true;
+				Bullet b;
+				b.x = static_cast<float>(mMousePos.x);
+				b.y = static_cast<float>(mMousePos.y);
+				b.size = 50.0f; 
+				mBullets.push_back(b);
+			}
+			break;
+
+		case SDL_MOUSEBUTTONUP:
+			if (event.button.button == SDL_BUTTON_LEFT) {
+				mIsFiring = false;
+			}
+			break;
+		}
+	}
+
+	// Get mouse position
+	SDL_GetMouseState(&mMousePos.x, &mMousePos.y);
+
+	//quit game
+	const Uint8* state = SDL_GetKeyboardState(NULL);
+	if (state[SDL_SCANCODE_ESCAPE]) { mIsRunning = false; }
+
+}
+
+void game::UpdateGame()
+{
+	//delta time
+	while (!SDL_TICKS_PASSED(SDL_GetTicks(), mTicksCount + 16));
+
+	float deltaTime = (SDL_GetTicks() - mTicksCount) / 1000.0f;
+
+	if (deltaTime > 0.05f)
+	{
+		deltaTime = 0.05f;
+	}
+
+	mTimer -= deltaTime;
+	if (mTimer <= 0.0f)
+	{
+		mTimer = 0.0f;
+		
+		mIsGameOver = true; // 0秒になったらループを抜ける（終了）
+		mIsRunning = false;
+			
+		SDL_Log("Time Up! Final Score: %d", mScore);
+	}
+
+	mTicksCount = SDL_GetTicks();
+
+	//update targets
+	if (mTargets.empty()) {
+		for (int i = 0; i < 5; i++) {
+			Target t;
+			t.x = static_cast<float>(rand() % 2400); // 散らばるようにランダム配置
+			t.y = static_cast<float>(100 + (i * 80)); // 少しずつ高さを変える
+			t.width = 64.0f;
+			t.height = 64.0f;
+			t.speed = 150.0f + (rand() % 100); // 各ターゲットで速度を変える
+			t.direction = (rand() % 2 == 0) ? 1 : -1; // 向きもランダム
+
+			mTargets.push_back(t);
+		}
+
+		{
+			
+			int w, h;
+			SDL_GetWindowSize(mWindow, &w, &h);
+
+			for (auto& t : mTargets) {
+				t.x += t.speed * t.direction * deltaTime;
+
+				// 画面の左端
+				if (t.x <= 0) {
+					t.x = 0;
+					t.direction *= -1;
+				}
+				// w (実際の画面幅) を使って右端を判定
+				else if (t.x >= w - t.width) {
+					t.x = static_cast<float>(w - t.width);
+					t.direction *= -1;
+				}
+			}
+		}
+
+		//update bullets
+		for (auto bIt = mBullets.begin(); bIt != mBullets.end(); ) {
+			bool struck = false; 
+
+			SDL_Rect bRect = { (int)(bIt->x - bIt->size / 2), (int)bIt->y, (int)bIt->size, (int)(bIt->size * 2) };
+
+			for (auto tIt = mTargets.begin(); tIt != mTargets.end(); ) {
+				SDL_Rect tRect = { (int)tIt->x, (int)tIt->y, (int)tIt->width, (int)tIt->height };
+
+				if (SDL_HasIntersection(&bRect, &tRect)) {
+					
+					Mix_PlayChannel(-1, soundEffect2, 0);
+					mScore += 100;
+					tIt = mTargets.erase(tIt); 
+					struck = true;
+					break; 
+				}
+				else {
+					++tIt;
+				}
+			}
+
+			for (auto it = mBullets.begin(); it != mBullets.end(); ) {
+
+				it->size -= 30.0f * deltaTime;  
+				it->y -= 600.0f * deltaTime;
+			
+				if (it->y < -20 || it->size <= 1.0f) {
+					it = mBullets.erase(it);
+				}
+				else {
+					++it;
+				}
+			}
+
+			if (struck) {
+				bIt = mBullets.erase(bIt); 
+			}
+			else {
+				++bIt;
+			}
+		}
+
+	}
+
+	{
+		
+		int w, h;
+		SDL_GetWindowSize(mWindow, &w, &h);
+
+		for (auto& t : mTargets) {
+			t.x += t.speed * t.direction * deltaTime;
+
+			
+			if (t.x <= 0) {
+				t.x = 0;
+				t.direction *= -1;
+			}
+		
+			else if (t.x >= w - t.width) {
+				t.x = static_cast<float>(w - t.width);
+				t.direction *= -1;
+			}
+		}
+	}
+
+	//update bullets
+    for (auto it = mBullets.begin(); it != mBullets.end(); ) {
+
+		it->size -= 30.0f * deltaTime;  
+		it->y -= 600.0f * deltaTime;
+		
+		if (it->y < -20 || it->size <= 1.0f) {
+			it = mBullets.erase(it);
+		}
+		else {
+			++it;
+		}
+	}
+
+	for (auto bIt = mBullets.begin(); bIt != mBullets.end(); ) {
+		bool struck = false; // 弾が何かに当たったか
+
+		SDL_Rect bRect = { (int)(bIt->x - bIt->size / 2), (int)bIt->y, (int)bIt->size, (int)(bIt->size * 2) };
+
+		for (auto tIt = mTargets.begin(); tIt != mTargets.end(); ) {
+			SDL_Rect tRect = { (int)tIt->x, (int)tIt->y, (int)tIt->width, (int)tIt->height };
+
+			if (SDL_HasIntersection(&bRect, &tRect)) {
+				// 当たった！
+				Mix_PlayChannel(-1, soundEffect2, 0);
+				mScore += 100;
+				tIt = mTargets.erase(tIt); // ターゲットを消す
+				struck = true;
+				break; // この弾は消えるのでターゲットループを抜ける
+			}
+			else {
+				++tIt;
+			}
+		}
+
+		if (struck) {
+			bIt = mBullets.erase(bIt); // 当たった弾を消す
+		}
+		else {
+			++bIt;
+		}
+	}
+
+}
+
+void game::GenerateOutput()
+{
+	// Set draw color to blue
+	SDL_SetRenderDrawColor(
+		mRenderer,
+		0,		// R
+		0,		// G 
+		255,	// B
+		255		// A
+	);
+
+	if (!mIsGameOver) {
+		SDL_RenderClear(mRenderer);
+		SDL_RenderCopy(mRenderer, texture, NULL, NULL);
+
+		//drow bullets
+		for (const auto& b : mBullets)
+		{
+			SDL_Rect r;
+			r.x = static_cast<int>(b.x) - 90; 
+			r.y = static_cast<int>(b.y) - 130;
+			r.w = static_cast<int>(b.size);
+			r.h = static_cast<int>(b.size * 2); 
+			SDL_RenderCopy(mRenderer, mBulletTexture, NULL, &r); 
+		}
+
+		// drow target
+		for (const auto& t : mTargets) { 
+			SDL_Rect dst = { (int)t.x, (int)t.y, (int)t.width, (int)t.height };
+		    SDL_RenderCopy(mRenderer, mTargetTexture, NULL, &dst);	
+		}
+
+		//drow gun
+		if (mGunTexture) {
+			int w, h;
+			SDL_QueryTexture(mGunTexture, NULL, NULL, &w, &h);
+
+
+
+			int recoil = mIsFiring ? 20 : 0;
+			SDL_Rect gunRect = {
+				mMousePos.x - w / 2,        // マウスを中心に
+				mMousePos.y - h / 2 - recoil, // 反動で少し浮く
+				w, h
+			};
+
+			SDL_RenderCopy(mRenderer, mGunTexture, NULL, &gunRect);
+		}
+		if (mIsFiring) {
+			int w, h;
+			SDL_QueryTexture(mGunTexture2, NULL, NULL, &w, &h);
+			SDL_Rect gunRect2 = {
+				mMousePos.x - w / 2,
+				mMousePos.y - h / 2 - 20,
+				w, h
+			};
+			SDL_RenderCopy(mRenderer, mGunTexture2, NULL, &gunRect2);
+		}
+
+
+		SDL_RenderPresent(mRenderer);
+	}
+
+	else {
+		SDL_SetRenderDrawBlendMode(mRenderer, SDL_BLENDMODE_BLEND);
+		SDL_SetRenderDrawColor(mRenderer, 0, 0, 0, 150); // A=150で半透明
+		SDL_RenderFillRect(mRenderer, NULL);
+
+		// タイトルバーに最終結果を固定表示
+		std::string result = "TIME UP! FINAL SCORE: " + std::to_string(mScore) + " - Press ESC to Quit";
+		SDL_SetWindowTitle(mWindow, result.c_str());
+
+		
+
+	}
+	}
+
+void game::Shutdown()
+{
+	SDL_DestroyRenderer(mRenderer);
+	SDL_DestroyWindow(mWindow);
+	SDL_DestroyTexture(texture);
+	IMG_Quit();
+	Mix_FreeChunk(soundEffect);
+	Mix_FreeMusic(bgm);
+	Mix_CloseAudio();
+	SDL_Quit();
+}
