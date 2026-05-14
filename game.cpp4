@@ -1,0 +1,699 @@
+#include"game.h"
+#include"SDL_mixer.h"
+#include<iostream>
+#include<string>
+#include<vector>
+#include <cstdlib>
+const int thickness = 15;
+const float paddleH = 100.0f;
+
+game::game()
+
+	: mWindow(nullptr)
+	, mRenderer(nullptr)
+	, mWindow2(nullptr)
+	, mRenderer2(nullptr)
+	, mTicksCount(0)
+	, mIsGameOver2(false)
+	, mIsGameover3(false)
+	, mIsGameover4(false)
+	, mIsRunning(true)
+	, mIsRunning2(false)
+	, texture(nullptr)
+	, mGunTexture(nullptr)
+	, mrun(false)
+{
+
+}
+
+bool game::Initialize()
+
+{
+	// Initialize SDL
+	int sdlResult = SDL_Init(SDL_INIT_VIDEO);
+	if (sdlResult != 0)
+	{
+		SDL_Log("Unable to initialize SDL: %s", SDL_GetError());
+		return false;
+	}
+
+	if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) != 0)
+	{
+		SDL_Log("Unable to initialize SDL: %s", SDL_GetError());
+		return false;
+	}
+	if (Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 2048) < 0) {
+		printf("SDL_mixer初期化エラー: %s\n", Mix_GetError());
+	}
+	if (IMG_Init(IMG_INIT_PNG) == 0)
+	{
+		SDL_Log("Unable to initialize SDL_image: %s", SDL_GetError());
+		return false;
+	}
+	SDL_Init(SDL_INIT_GAMECONTROLLER);
+
+	// Set relative mouse mode
+	SDL_SetRelativeMouseMode(SDL_TRUE);
+
+	// Load music and sound effects
+	
+		bgm = Mix_LoadMUS("honwakapop.mp3");
+		bgm2 = Mix_LoadMUS("syosen.mp3");
+		soundEffect = Mix_LoadWAV("gun.mp3");
+		soundEffect2 = Mix_LoadWAV("bakuhatu.mp3");
+		sakebi = Mix_LoadWAV("kassi sakebi.mp3");
+		kakusei = Mix_LoadWAV("kassi kakusei.mp3");
+		intro = Mix_LoadWAV("kassi intro.mp3");
+		Mix_PlayMusic(bgm, -1);
+		Mix_VolumeMusic(64);
+	
+	// Create SDL window
+	mWindow = SDL_CreateWindow(
+		"Game ", // Window title
+		100,	// Top left x-coordinate of window
+		100,	// Top left y-coordinate of window
+		1024,	// Width of window
+		768,	// Height of window
+		SDL_WINDOW_FULLSCREEN_DESKTOP		
+	);
+
+	if (!mWindow)
+	{
+		SDL_Log("Failed to create window: %s", SDL_GetError());
+		return false;
+	}
+
+	//// Create SDL renderer
+	mRenderer = SDL_CreateRenderer(
+		mWindow, 
+		-1,		 
+		SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC
+	);
+
+	if (!mRenderer)
+	{
+		SDL_Log("Failed to create renderer: %s", SDL_GetError());
+		return false;
+	}
+
+	// Initialize targets
+	for (int i = 0; i < 10; i++) {
+		Target t;
+		t.x = static_cast<float>(rand() % 2400); // 散らばるようにランダム配置
+		t.y = static_cast<float>(100 + (i * 80)); // 少しずつ高さを変える
+		t.width = 64.0f;
+		t.height = 64.0f;
+		t.speed = 150.0f + (rand() % 100); // 各ターゲットで速度を変える
+		t.direction = (rand() % 2 == 0) ? 1 : -1; // 向きもランダム
+
+		mTargets.push_back(t);
+	}
+
+	kassi mKassi;
+	mKassi.x = static_cast<float>(rand() % 200);
+	mKassi.y = static_cast<float>(rand() % 200);
+	MKassi.push_back(mKassi);
+
+	// Load textures
+	texture = IMG_LoadTexture(mRenderer, "kouya.png");
+	
+	mGunTexture = IMG_LoadTexture(mRenderer, "gun.png");
+	mGunTexture2 = IMG_LoadTexture(mRenderer, "gun2.png");
+	
+	mBulletTexture = IMG_LoadTexture(mRenderer, "marisa.png");
+	
+	mTargetTexture = IMG_LoadTexture(mRenderer, "mato.png");
+	
+	mAim1 = IMG_LoadTexture(mRenderer, "mAim1.png");
+	mAim2 = IMG_LoadTexture(mRenderer, "mAim2.png");
+	
+	kassi1 = IMG_LoadTexture(mRenderer, "kassi1.png");
+	kassi1_2 = IMG_LoadTexture(mRenderer, "kassi1_2.png");
+	kassi2 = IMG_LoadTexture(mRenderer, "kassi2.png");
+	kassi2_2 = IMG_LoadTexture(mRenderer, "kassi2_2.png");
+	kassi2_3 = IMG_LoadTexture(mRenderer, "kassi2_3.png");
+	kassi2_4 = IMG_LoadTexture(mRenderer, "kassi2_4.png")	;
+	kassi2_5 = IMG_LoadTexture(mRenderer, "kassi2_5.png");
+	kassi3 = IMG_LoadTexture(mRenderer, "kassi3.png");
+	kassi3_2 = IMG_LoadTexture(mRenderer, "kassi3_2.png");
+	kassi3_3 = IMG_LoadTexture(mRenderer, "kassi3_3.png");
+	kassi3_4 = IMG_LoadTexture(mRenderer, "kassi3_4.png");
+
+	// Initialize game controller
+	int controllerCount = 0;
+	for (int i = 0; i < SDL_NumJoysticks(); ++i) {
+		if (SDL_IsGameController(i)) {
+			if (controllerCount == 0) {
+				mController1 = SDL_GameControllerOpen(i);
+				controllerCount++;
+			}
+			else if (controllerCount == 1) {
+				mController2 = SDL_GameControllerOpen(i);
+				controllerCount++;
+			}
+		}
+	}
+
+	return true;
+}
+
+void game::RunLoop()
+{
+	while (mIsRunning)
+	{
+		ProcessInput();
+		UpdateGame();
+		GenerateOutput();
+	}
+}
+
+void game::ProcessInput()
+{
+	SDL_Event event;
+	while (SDL_PollEvent(&event))
+	{
+		switch (event.type)
+		{
+		case SDL_QUIT:
+			mIsRunning = false;
+			break;
+
+		case SDL_CONTROLLERBUTTONDOWN:
+			Mix_PlayChannel(-1, soundEffect, 0);
+			if (event.cbutton.button == SDL_CONTROLLER_BUTTON_A) {
+
+				if (mController1 && event.cbutton.which == SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(mController1))) {
+					Bullet b;
+					b.x = static_cast<float>(mPlayer1X);
+					b.y = static_cast<float>(mPlayer1Y);
+					b.size = 50.0f;
+					mBullets.push_back(b);
+
+				}
+				if (mController2 && event.cbutton.which == SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(mController2))) {
+					Bullet c;
+					c.x = static_cast<float>(mPlayer2X);
+					c.y = static_cast<float>(mPlayer2Y);
+					c.size = 50.0f;
+					mBullets.push_back(c);
+
+				}
+			}
+			break;
+		}
+	}
+
+	// スティックによる移動（アナログ入力）
+	auto getAxis = [](SDL_GameController* c, SDL_GameControllerAxis axis) {
+		if (!c) return 0.0f;
+		float val = SDL_GameControllerGetAxis(c, axis);
+		// デッドゾーン処理（少し傾けただけで反応しないように）
+		if (abs(val) < 8000) return 0.0f;
+		return val / 32767.0f;
+		};
+
+	float speed = 5.0f;
+	mPlayer1X += (int)(getAxis(mController1, SDL_CONTROLLER_AXIS_LEFTX) * speed);
+	mPlayer1Y += (int)(getAxis(mController1, SDL_CONTROLLER_AXIS_LEFTY) * speed);
+
+	mPlayer2X += (int)(getAxis(mController2, SDL_CONTROLLER_AXIS_LEFTX) * speed);
+	mPlayer2Y += (int)(getAxis(mController2, SDL_CONTROLLER_AXIS_LEFTY) * speed);
+
+	//quit game
+	const Uint8* state = SDL_GetKeyboardState(NULL);
+	if (state[SDL_SCANCODE_ESCAPE]) { mIsRunning = false; }
+
+}
+
+void game::UpdateGame()
+{
+	//delta time
+	
+	while (!SDL_TICKS_PASSED(SDL_GetTicks(), mTicksCount + 16));
+
+	float deltaTime = (SDL_GetTicks() - mTicksCount) / 1000.0f;
+
+	if (deltaTime > 0.05f)
+	{
+		deltaTime = 0.05f;
+	}
+
+	mTimer -= deltaTime;
+	if (mTimer <= 0.0f)
+	{
+		mTimer = 0.0f;
+
+		mIsGameOver = true;
+		
+		
+		if (mScore1 > 1000 or mScore2 > 1000) {
+			mIsGameOver2 = true;
+		}
+		else mrun = true;
+
+	}
+
+	mTicksCount = SDL_GetTicks();
+
+	    
+	if (mIsGameOver2) {
+		Mix_FreeMusic(bgm);
+		Mix_PlayMusic(bgm2, -1);
+		Mix_Chunk* intro = Mix_LoadWAV("kassi intro.mp3");
+		//delta time
+		while (!SDL_TICKS_PASSED(SDL_GetTicks(), mTicksCount + 16));
+		float deltaTime2 = (SDL_GetTicks() - mTicksCount) / 1000.0f;
+
+		if (deltaTime2 > 0.05f)
+		{
+			deltaTime2 = 0.05f;
+		}
+
+		mTimer2 -= deltaTime2;
+		if (mTimer2 <= 0.0f)
+		{
+			mTimer2 = 0.0f;
+			if (mScore1 + mScore2 > 2000) {
+				mIsGameover3 = true;
+			}
+			else {
+				mrun = true;
+			}
+
+			mTicksCount = SDL_GetTicks();
+		}
+	}
+	
+	if (mIsGameover3) {
+			Mix_FreeMusic(bgm2);
+			Mix_PlayMusic(bgm2, -1);
+			Mix_Chunk* intro = Mix_LoadWAV("kassi kakusei.mp3");
+			//delta time
+			while (!SDL_TICKS_PASSED(SDL_GetTicks(), mTicksCount + 16));
+			float deltaTime3 = (SDL_GetTicks() - mTicksCount) / 1000.0f;
+
+			if (deltaTime3 > 0.05f)
+			{
+				deltaTime3 = 0.05f;
+			}
+
+			mTimer2 -= deltaTime3;
+			if (mTimer2 <= 0.0f)
+			{
+				mTimer2 = 0.0f;
+				if (mScore1 + mScore2 > 2000) {
+					mIsGameover4 = true;
+				}
+				else {
+					mrun = true;
+				}
+
+				mTicksCount = SDL_GetTicks();
+			}
+		}
+
+	if (mIsGameover4) {
+			Mix_FreeMusic(bgm);
+			Mix_PlayMusic(bgm2, -1);
+			Mix_Chunk* intro = Mix_LoadWAV("kassi intro.mp3");
+			//delta time
+			while (!SDL_TICKS_PASSED(SDL_GetTicks(), mTicksCount + 16));
+			float deltaTime2 = (SDL_GetTicks() - mTicksCount) / 1000.0f;
+
+			if (deltaTime2 > 0.05f)
+			{
+				deltaTime2 = 0.05f;
+			}
+
+			mTimer2 -= deltaTime2;
+
+			if (mTimer2 <= 0.0f)
+			{
+				mTimer2 = 0.0f;
+				
+	            mrun = true;
+				
+				mTicksCount = SDL_GetTicks();
+			}
+
+		}
+
+	if (mrun) {
+		//delta time
+		while (!SDL_TICKS_PASSED(SDL_GetTicks(), mTicksCount + 16));
+		float deltaTimef = (SDL_GetTicks() - mTicksCount) / 1000.0f;
+
+		if (deltaTimef > 0.05f)
+		{
+			deltaTimef = 0.05f;
+		}
+
+		mTimerf -= deltaTimef;
+		if (mTimerf <= 0.0f)
+		{
+			mTimerf = 0.0f;
+			mrun = false;
+			mIsRunning = false;
+
+		}
+
+		mTicksCount = SDL_GetTicks();
+	}
+
+	//update targets
+	if (mTargets.empty()) {
+		for (int i = 0; i < 5; i++) {
+			Target t;
+			t.x = static_cast<float>(rand() % 2400); // 散らばるようにランダム配置
+			t.y = static_cast<float>(100 + (i * 80)); // 少しずつ高さを変える
+			t.width = 64.0f;
+			t.height = 64.0f;
+			t.speed = 150.0f + (rand() % 100); // 各ターゲットで速度を変える
+			t.direction = (rand() % 2 == 0) ? 1 : -1; // 向きもランダム
+
+			mTargets.push_back(t);
+		}
+
+		{
+
+			int w, h;
+			SDL_GetWindowSize(mWindow, &w, &h);
+
+			for (auto& t : mTargets) {
+				t.x += t.speed * t.direction * deltaTime;
+
+				// 画面の左端
+				if (t.x <= 0) {
+					t.x = 0;
+					t.direction *= -1;
+				}
+				// w (実際の画面幅) を使って右端を判定
+				else if (t.x >= w - t.width) {
+					t.x = static_cast<float>(w - t.width);
+					t.direction *= -1;
+				}
+			}
+		}
+	}
+
+	{
+
+		int w, h;
+		SDL_GetWindowSize(mWindow, &w, &h);
+
+		for (auto& t : mTargets) {
+			t.x += t.speed * t.direction * deltaTime;
+
+
+			if (t.x <= 0) {
+				t.x = 0;
+				t.direction *= -1;
+			}
+
+			else if (t.x >= w - t.width) {
+				t.x = static_cast<float>(w - t.width);
+				t.direction *= -1;
+			}
+		}
+	}
+
+	//update bullets
+	for (auto it = mBullets.begin(); it != mBullets.end(); ) {
+
+		it->size -= 30.0f * deltaTime;
+		it->y -= 600.0f * deltaTime;
+
+		if (it->y < -20 || it->size <= 1.0f) {
+			it = mBullets.erase(it);
+		}
+		else {
+			++it;
+		}
+	}
+
+	for (auto bIt = mBullets.begin(); bIt != mBullets.end(); ) {
+		bool struck = false; 
+
+		SDL_Rect bRect = { (int)(bIt->x - bIt->size / 2), (int)bIt->y, (int)bIt->size, (int)(bIt->size * 2) };
+		SDL_Rect cRect = { (int)(bIt->x - bIt->size / 2), (int)bIt->y, (int)bIt->size, (int)(bIt->size * 2) };
+		for (auto tIt = mTargets.begin(); tIt != mTargets.end(); ) {
+			SDL_Rect tRect = { (int)tIt->x, (int)tIt->y, (int)tIt->width, (int)tIt->height };
+
+			if (SDL_HasIntersection(&bRect, &tRect)) {
+				
+				Mix_PlayChannel(-1, soundEffect2, 0);
+				mScore1 += 100;
+				tIt = mTargets.erase(tIt); 
+				struck = true;
+				break; 
+			}
+
+			if(SDL_HasIntersection(&cRect, &tRect)) {
+
+				Mix_PlayChannel(-1, soundEffect2, 0);
+				mScore2 += 100;
+				tIt = mTargets.erase(tIt);
+				struck = true;
+				break;
+			}
+			else {
+				++tIt;
+			}
+		}
+
+		if (struck) {
+			bIt = mBullets.erase(bIt); // 当たった弾を消す
+		}
+		else {
+			++bIt;
+		}
+	}
+
+}
+
+void game::GenerateOutput()
+{
+	// Set draw color to blue
+	SDL_SetRenderDrawColor(
+		mRenderer,
+		0,		// R
+		0,		// G 
+		255,	// B
+		0		// A
+	);
+
+	//zensyousenn
+	if (!mIsGameOver) {
+		SDL_RenderClear(mRenderer);
+		SDL_RenderCopy(mRenderer, texture, NULL, NULL);
+
+		//drow bullets
+		for (const auto& b : mBullets)
+		{
+			SDL_Rect r;
+			r.x = static_cast<int>(b.x) - 90;
+			r.y = static_cast<int>(b.y) - 130;
+			r.w = static_cast<int>(b.size);
+			r.h = static_cast<int>(b.size * 2);
+			SDL_RenderCopy(mRenderer, mBulletTexture, NULL, &r);
+		}
+
+		for (const auto& c : mBullets)
+		{
+			SDL_Rect r;
+			r.x = static_cast<int>(c.x) - 90;
+			r.y = static_cast<int>(c.y) - 130;
+			r.w = static_cast<int>(c.size);
+			r.h = static_cast<int>(c.size * 2);
+			SDL_RenderCopy(mRenderer, mBulletTexture, NULL, &r);
+		}
+
+		// drow target
+		for (const auto& t : mTargets) {
+			SDL_Rect dst = { (int)t.x, (int)t.y, (int)t.width, (int)t.height };
+			SDL_RenderCopy(mRenderer, mTargetTexture, NULL, &dst);
+		}
+
+		//drow gun
+		// player1's gun
+		if (mController1) {
+			SDL_Rect r = { mPlayer1X - 50, mPlayer1Y - 50, 100, 100 };
+			SDL_RenderCopy(mRenderer, mAim1, NULL, &r);
+
+		}
+
+		// player2's gun 
+		if (mController2) {
+			SDL_Rect r = { mPlayer2X - 50, mPlayer2Y - 50, 100, 100 };
+			SDL_RenderCopy(mRenderer, mAim2, NULL, &r);
+		}
+
+		SDL_RenderPresent(mRenderer);
+
+	}
+	//kassi
+	else if (mIsGameOver2) {
+		SDL_RenderClear(mRenderer);
+		
+		//drow gun
+		// player1's gun
+		if (mController1) {
+			SDL_Rect r = { mPlayer1X - 50, mPlayer1Y - 50, 100, 100 };
+			SDL_RenderCopy(mRenderer, mAim1, NULL, &r);
+
+		}
+
+		// player2's gun 
+		if (mController2) {
+			SDL_Rect r = { mPlayer2X - 50, mPlayer2Y - 50, 100, 100 };
+			SDL_RenderCopy(mRenderer, mAim2, NULL, &r);
+		}
+
+		//drow bullets
+		for (const auto& b : mBullets)
+		{
+			SDL_Rect r;
+			r.x = static_cast<int>(b.x) - 90;
+			r.y = static_cast<int>(b.y) - 130;
+			r.w = static_cast<int>(b.size);
+			r.h = static_cast<int>(b.size * 2);
+			SDL_RenderCopy(mRenderer, mBulletTexture, NULL, &r);
+		}
+
+		for (const auto& c : mBullets)
+		{
+			SDL_Rect r;
+			r.x = static_cast<int>(c.x) - 90;
+			r.y = static_cast<int>(c.y) - 130;
+			r.w = static_cast<int>(c.size);
+			r.h = static_cast<int>(c.size * 2);
+			SDL_RenderCopy(mRenderer, mBulletTexture, NULL, &r);
+		}
+
+		// drow kassi target
+		for (const auto& mKassi : MKassi) {
+			SDL_Rect dst = { (int)mKassi.x, (int)mKassi.y};
+			SDL_RenderCopy(mRenderer, mTargetTexture, NULL, &dst);
+		}
+		
+		SDL_RenderPresent(mRenderer);
+	}
+
+	else if (mIsGameover3) {
+		SDL_RenderClear(mRenderer);
+
+		//drow gun
+		// player1's gun
+		if (mController1) {
+			SDL_Rect r = { mPlayer1X - 50, mPlayer1Y - 50, 100, 100 };
+			SDL_RenderCopy(mRenderer, mAim1, NULL, &r);
+
+		}
+
+		// player2's gun 
+		if (mController2) {
+			SDL_Rect r = { mPlayer2X - 50, mPlayer2Y - 50, 100, 100 };
+			SDL_RenderCopy(mRenderer, mAim2, NULL, &r);
+		}
+
+		//drow bullets
+		for (const auto& b : mBullets)
+		{
+			SDL_Rect r;
+			r.x = static_cast<int>(b.x) - 90;
+			r.y = static_cast<int>(b.y) - 130;
+			r.w = static_cast<int>(b.size);
+			r.h = static_cast<int>(b.size * 2);
+			SDL_RenderCopy(mRenderer, mBulletTexture, NULL, &r);
+		}
+
+		for (const auto& c : mBullets)
+		{
+			SDL_Rect r;
+			r.x = static_cast<int>(c.x) - 90;
+			r.y = static_cast<int>(c.y) - 130;
+			r.w = static_cast<int>(c.size);
+			r.h = static_cast<int>(c.size * 2);
+			SDL_RenderCopy(mRenderer, mBulletTexture, NULL, &r);
+		}
+
+		// drow kassi target
+		for (const auto& mKassi : MKassi) {
+			SDL_Rect dst = { (int)mKassi.x, (int)mKassi.y };
+			SDL_RenderCopy(mRenderer, mTargetTexture, NULL, &dst);
+		}
+
+		SDL_RenderPresent(mRenderer);
+	}
+
+	else if (mIsGameover4) {
+		SDL_RenderClear(mRenderer);
+
+		//drow gun
+		// player1's gun
+		if (mController1) {
+			SDL_Rect r = { mPlayer1X - 50, mPlayer1Y - 50, 100, 100 };
+			SDL_RenderCopy(mRenderer, mAim1, NULL, &r);
+
+		}
+
+		// player2's gun 
+		if (mController2) {
+			SDL_Rect r = { mPlayer2X - 50, mPlayer2Y - 50, 100, 100 };
+			SDL_RenderCopy(mRenderer, mAim2, NULL, &r);
+		}
+
+		//drow bullets
+		for (const auto& b : mBullets)
+		{
+			SDL_Rect r;
+			r.x = static_cast<int>(b.x) - 90;
+			r.y = static_cast<int>(b.y) - 130;
+			r.w = static_cast<int>(b.size);
+			r.h = static_cast<int>(b.size * 2);
+			SDL_RenderCopy(mRenderer, mBulletTexture, NULL, &r);
+		}
+
+		for (const auto& c : mBullets)
+		{
+			SDL_Rect r;
+			r.x = static_cast<int>(c.x) - 90;
+			r.y = static_cast<int>(c.y) - 130;
+			r.w = static_cast<int>(c.size);
+			r.h = static_cast<int>(c.size * 2);
+			SDL_RenderCopy(mRenderer, mBulletTexture, NULL, &r);
+		}
+
+		// drow kassi target
+		for (const auto& mKassi : MKassi) {
+			SDL_Rect dst = { (int)mKassi.x, (int)mKassi.y };
+			SDL_RenderCopy(mRenderer, mTargetTexture, NULL, &dst);
+		}
+
+		SDL_RenderPresent(mRenderer);
+		}
+	//result
+	else if(mrun) {
+		SDL_RenderClear(mRenderer);
+		
+		SDL_RenderCopy(mRenderer, texture, NULL, NULL);
+		SDL_RenderPresent(mRenderer);
+	}
+
+}
+
+
+
+void game::Shutdown()
+{
+	SDL_DestroyRenderer(mRenderer);
+	SDL_DestroyWindow(mWindow);
+	SDL_DestroyTexture(texture);
+	IMG_Quit();
+	Mix_FreeChunk(soundEffect);
+	if(bgm) Mix_FreeMusic(bgm);
+	Mix_CloseAudio();
+	SDL_Quit();
+	if (mController1) SDL_GameControllerClose(mController1);
+	if (mController2) SDL_GameControllerClose(mController2);
+}
